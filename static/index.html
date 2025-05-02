@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crypto Price Alert Bot</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f7fa;
+            color: #333;
+        }
+
+        .container {
+            background-color: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            padding: 25px;
+        }
+
+        h1 {
+            color: #1e3a8a;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+
+        input,
+        select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+
+        button {
+            background-color: #1e3a8a;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            padding: 12px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 15px;
+            transition: background-color 0.3s;
+        }
+
+        button:hover {
+            background-color: #1e40af;
+        }
+
+        .price-display {
+            margin-top: 30px;
+            padding: 20px;
+            background-color: #f0f7ff;
+            border-radius: 5px;
+            text-align: center;
+        }
+
+        .current-price {
+            font-size: 24px;
+            font-weight: bold;
+        }
+
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 5px;
+            text-align: center;
+            display: none;
+        }
+
+        .status.active {
+            display: block;
+            background-color: #dcfce7;
+            color: #166534;
+        }
+
+        .status.waiting {
+            display: block;
+            background-color: #ffedd5;
+            color: #9a3412;
+        }
+
+        .config-section {
+            margin-top: 30px;
+            border-top: 1px solid #ddd;
+            padding-top: 20px;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 10px;
+        }
+
+        .input-group input {
+            flex: 2;
+        }
+
+        .input-group select {
+            flex: 1;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Crypto Price Alert Bot</h1>
+
+        <div class="form-group">
+            <label for="crypto-select">Select Cryptocurrency:</label>
+            <select id="crypto-select">
+                <option value="bitcoin">Bitcoin (BTC)</option>
+                <option value="ethereum" selected>Ethereum (ETH)</option>
+                <option value="ripple">Ripple (XRP)</option>
+                <option value="cardano">Cardano (ADA)</option>
+                <option value="solana">Solana (SOL)</option>
+                <option value="dogecoin">Dogecoin (DOGE)</option>
+                <option value="polkadot">Polkadot (DOT)</option>
+                <option value="chainlink">Chainlink (LINK)</option>
+                <option value="litecoin">Litecoin (LTC)</option>
+                <option value="avalanche-2">Avalanche (AVAX)</option>
+            </select>
+        </div>
+
+        <div class="form-group input-group">
+            <input type="number" id="target-price" step="0.01" placeholder="Target Price (USD)">
+            <select id="price-condition">
+                <option value="above">Above</option>
+                <option value="below" selected>Below</option>
+            </select>
+        </div>
+
+        <div class="config-section">
+            <div class="form-group">
+                <label for="call-to">Your Phone Number:</label>
+                <input type="text" id="call-to" placeholder="+12345678901">
+            </div>
+
+            <div class="form-group">
+                <label for="check-interval">Check Interval (seconds):</label>
+                <input type="number" id="check-interval" value="15" min="5">
+            </div>
+        </div>
+
+        <button id="start-bot">Start Price Alert Bot</button>
+        <button id="stop-bot" style="display: none; background-color: #b91c1c;">Stop Bot</button>
+
+        <div class="price-display">
+            <h3>Current Price</h3>
+            <div class="current-price" id="current-price">---.--</div>
+            <p>Last updated: <span id="last-updated">Never</span></p>
+        </div>
+
+        <div class="status" id="status">Waiting for price condition to be met</div>
+    </div>
+
+    <script>
+        // Global variables
+        let intervalId = null;
+        let selectedCrypto = 'ethereum';
+        let targetPrice = 0;
+        let checkAbove = false;
+        let monitorId = null;
+
+        // DOM elements
+        const cryptoSelect = document.getElementById('crypto-select');
+        const targetPriceInput = document.getElementById('target-price');
+        const priceConditionSelect = document.getElementById('price-condition');
+        const startButton = document.getElementById('start-bot');
+        const stopButton = document.getElementById('stop-bot');
+        const currentPriceElement = document.getElementById('current-price');
+        const lastUpdatedElement = document.getElementById('last-updated');
+        const statusElement = document.getElementById('status');
+        const checkIntervalInput = document.getElementById('check-interval');
+
+        // Phone config element
+        const callToInput = document.getElementById('call-to');
+
+        // Get current price and update display
+        async function updatePrice() {
+            try {
+                const response = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${selectedCrypto}&vs_currencies=usd`);
+                if (!response.ok) {
+                    throw new Error(`API returned status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                const price = data[selectedCrypto].usd;
+
+                // Update display
+                currentPriceElement.textContent = `$${price.toFixed(2)}`;
+                lastUpdatedElement.textContent = new Date().toLocaleTimeString();
+
+                // Check if target price is reached
+                if (checkPrice(price, targetPrice, checkAbove)) {
+                    statusElement.textContent = `Target price ${checkAbove ? 'above' : 'below'} $${targetPrice} reached! Making call...`;
+                    statusElement.className = 'status active';
+                    makeCall();
+                    stopBot();
+                } else {
+                    statusElement.textContent = `Waiting for price to go ${checkAbove ? 'above' : 'below'} $${targetPrice}`;
+                    statusElement.className = 'status waiting';
+                }
+
+                return price;
+            } catch (error) {
+                console.error('Error fetching price:', error);
+                statusElement.textContent = `Error: ${error.message}`;
+                statusElement.className = 'status active';
+                return null;
+            }
+        }
+
+        // Check if price meets the condition
+        function checkPrice(currentPrice, targetPrice, checkAbove) {
+            if (checkAbove) {
+                return currentPrice >= targetPrice;
+            } else {
+                return currentPrice <= targetPrice;
+            }
+        }
+
+        // Make Twilio call
+        function makeCall() {
+            console.log('Making call...');
+
+            // Make API call to backend which will use Twilio config from .env
+            fetch('/api/make-test-call', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    callTo: callToInput.value,
+                }),
+            })
+                .then(response => response.json())
+                .then(data => {
+                    console.log('Call response:', data);
+                    if (data.status === 'success') {
+                        alert(`Call initiated successfully to ${callToInput.value}`);
+                    } else {
+                        alert(`Error making call: ${data.message}`);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Error making call. See console for details.');
+                });
+        }
+
+        // Start the bot
+        function startBot() {
+            // Get values from inputs
+            selectedCrypto = cryptoSelect.value;
+            targetPrice = parseFloat(targetPriceInput.value);
+            checkAbove = priceConditionSelect.value === 'above';
+            const checkInterval = parseInt(checkIntervalInput.value);
+
+            // Validate inputs
+            if (isNaN(targetPrice) || targetPrice <= 0) {
+                alert('Please enter a valid target price');
+                return;
+            }
+
+            if (callToInput.value === '') {
+                alert('Please enter your phone number');
+                return;
+            }
+
+            // Make API call to start monitoring
+            fetch('/api/start-monitor', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    cryptoId: selectedCrypto,
+                    targetPrice: targetPrice,
+                    checkAbove: checkAbove,
+                    interval: checkInterval,
+                    callTo: callToInput.value
+                }),
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        monitorId = data.monitorId;
+
+                        // Start local UI updates
+                        updatePrice();
+                        intervalId = setInterval(updatePrice, checkInterval * 1000);
+
+                        // Update UI
+                        startButton.style.display = 'none';
+                        stopButton.style.display = 'block';
+
+                        // Disable input fields
+                        cryptoSelect.disabled = true;
+                        targetPriceInput.disabled = true;
+                        priceConditionSelect.disabled = true;
+                        checkIntervalInput.disabled = true;
+                        callToInput.disabled = true;
+
+                        statusElement.textContent = `Monitoring ${selectedCrypto} price. Waiting for ${checkAbove ? 'above' : 'below'} ${targetPrice}`;
+                        statusElement.className = 'status waiting';
+                    } else {
+                        alert(`Error starting monitor: ${data.message}`);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Error starting monitor. See console for details.');
+                });
+        }
+
+        // Stop the bot
+        function stopBot() {
+            // Clear local interval
+            clearInterval(intervalId);
+            intervalId = null;
+
+            // Stop backend monitor if active
+            if (monitorId) {
+                fetch(`/api/stop-monitor/${monitorId}`, { method: 'POST' })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            console.log('Monitor stopped successfully');
+                        } else {
+                            console.error('Error stopping monitor:', data.message);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                    })
+                    .finally(() => {
+                        monitorId = null;
+                    });
+            }
+
+            // Update UI
+            startButton.style.display = 'block';
+            stopButton.style.display = 'none';
+
+            // Enable input fields
+            cryptoSelect.disabled = false;
+            targetPriceInput.disabled = false;
+            priceConditionSelect.disabled = false;
+            checkIntervalInput.disabled = false;
+            callToInput.disabled = false;
+
+            // Update status
+            statusElement.textContent = 'Monitoring stopped';
+            statusElement.className = 'status';
+        }
+
+        // Event listeners
+        startButton.addEventListener('click', startBot);
+        stopButton.addEventListener('click', stopBot);
+
+        // Initialize with current price
+        cryptoSelect.addEventListener('change', () => {
+            selectedCrypto = cryptoSelect.value;
+            updatePrice();
+        });
+
+        // Initial price update
+        updatePrice();
+    </script>
+</body>
+
+</html>

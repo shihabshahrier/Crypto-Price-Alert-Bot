@@ -7,6 +7,7 @@ from twilio.rest import Client
 from dotenv import load_dotenv
 from flask_cors import CORS
 
+
 app = Flask(__name__, static_folder='static')
 CORS(app)  # Enable CORS for all routes
 
